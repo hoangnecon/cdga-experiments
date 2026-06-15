@@ -1,0 +1,14 @@
+# Method configuration for Distance-Weighted Cross Entropy (DW-CE)
+# File: experiments/configs/methods/loss_based/dwce.yaml
+
+base: ../../base/group_a/unetformer_r18_vaihingen.yaml
+
+project:
+  name: wacv2027_baseline_dwce
+  method: baseline_dwce
+
+dwce:
+  enabled: true
+  gamma: 10
+  sigma: 5.0
+  decay_fn: gaussian

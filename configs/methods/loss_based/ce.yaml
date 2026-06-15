@@ -1,0 +1,8 @@
+# Method configuration for Vanilla Cross Entropy (CE)
+# File: experiments/configs/methods/loss_based/ce.yaml
+
+base: ../../base/group_a/unetformer_r18_vaihingen.yaml
+
+project:
+  name: wacv2027_baseline_ce
+  method: baseline_ce

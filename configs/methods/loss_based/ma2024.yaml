@@ -1,0 +1,14 @@
+# Method configuration for Ma2024 Boundary F1 Loss
+# File: experiments/configs/methods/loss_based/ma2024.yaml
+
+base: ../../base/group_a/unetformer_r18_vaihingen.yaml
+
+project:
+  name: wacv2027_baseline_ma2024
+  method: baseline_ma2024
+
+ma2024:
+  enabled: true
+  weight: 1.0
+  # BF1 loss parameters
+  dilation_width: 3

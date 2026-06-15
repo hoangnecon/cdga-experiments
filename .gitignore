@@ -1,0 +1,7 @@
+experiments/runs/
+__pycache__/
+*.pyc
+*.pth
+.env
+.venv/
+.git

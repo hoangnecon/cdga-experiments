@@ -1,0 +1,19 @@
+# Method configuration for Active Boundary Loss (ABL)
+# File: experiments/configs/methods/loss_based/abl.yaml
+# Faithful implementation of Wang et al., AAAI 2022
+# All parameters match official code in tmp/active-boundary-loss/abl.py
+
+base: ../../base/group_a/unetformer_r18_vaihingen.yaml
+
+project:
+  name: wacv2027_baseline_abl
+  method: baseline_abl
+
+abl:
+  enabled: true
+  weight: 1.0
+  # ABL parameters — matching official code
+  max_N_ratio: 0.01      # Maximum fraction of pixels considered as PDB (1/100 in official)
+  max_clip_dist: 20.0    # Maximum distance for weight clamping
+  is_detach: true        # Detach neighbor logits in KL computation
+  lambda_boundary: 1.0

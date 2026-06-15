@@ -1,0 +1,11 @@
+# Method configuration for PCGrad (Projected Gradient Descent)
+# File: experiments/configs/methods/gradient_based/pcgrad.yaml
+
+base: ../../base/group_a/unetformer_r18_vaihingen.yaml
+
+project:
+  name: wacv2027_baseline_pcgrad
+  method: baseline_pcgrad
+
+pcgrad:
+  enabled: true
