@@ -7,6 +7,7 @@ Handles:
 - Programmatic PYTHONPATH resolution for GeoSeg
 - Capturing intermediate features before the segmentation head
 """
+import os
 import sys
 from pathlib import Path
 from typing import Any, Optional, Tuple
@@ -16,13 +17,37 @@ import torch.nn as nn
 
 # ──────────────────────────────────────────────────────────
 # Resolve GeoSeg import path dynamically
+# Priority:
+#   1. GEOSEG_DIR environment variable (explicit override, works in subprocesses)
+#   2. project_root/tmp/GeoSeg (local dev path)
+#   3. project_root/geoseg (Colab/server path: GeoSeg cloned at WACV_EXP/geoseg/)
 # ──────────────────────────────────────────────────────────
 current_file = Path(__file__).resolve()
-# shared is at project_root/shared
+# shared is at project_root/shared → parents[2] = project_root
 project_root = current_file.parents[2]
-geoseg_dir = project_root / "tmp" / "GeoSeg"
 
-if geoseg_dir.exists() and str(geoseg_dir) not in sys.path:
+geoseg_dir: Optional[Path] = None
+
+# 1. Explicit env var (highest priority — works for subprocess spawned by !python)
+_env_geoseg = os.environ.get("GEOSEG_DIR")
+if _env_geoseg:
+    _candidate = Path(_env_geoseg)
+    if _candidate.exists():
+        geoseg_dir = _candidate
+
+# 2. Local dev path: project_root/tmp/GeoSeg
+if geoseg_dir is None:
+    _candidate = project_root / "tmp" / "GeoSeg"
+    if _candidate.exists():
+        geoseg_dir = _candidate
+
+# 3. Colab/server fallback: project_root/geoseg (GeoSeg repo cloned here)
+if geoseg_dir is None:
+    _candidate = project_root / "geoseg"
+    if _candidate.exists():
+        geoseg_dir = _candidate
+
+if geoseg_dir is not None and str(geoseg_dir) not in sys.path:
     sys.path.insert(0, str(geoseg_dir))
 
 
