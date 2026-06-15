@@ -35,6 +35,15 @@ class CDGAModel(BaseModelWrapper):
             self._hook.detach()
             self._hook_handle = None
 
+    def _get_last_conv_weight(self, module: nn.Module) -> Optional[torch.Tensor]:
+        if isinstance(module, nn.Conv2d):
+            return module.weight
+        for child in reversed(list(module.children())):
+            w = self._get_last_conv_weight(child)
+            if w is not None:
+                return w
+        return None
+
     def forward_train(
         self,
         images: torch.Tensor,
@@ -51,8 +60,12 @@ class CDGAModel(BaseModelWrapper):
         
         if boundary_mask is not None and self.cfg["cdga"].get("enabled", True):
             feature_map.retain_grad()
-            # Extract classification head weights from the final Conv layer of segmentation_head
-            head_weights = self.backbone.decoder.segmentation_head[-1].weight
+            # Extract classification head weights safely from the final layer
+            last_layer = self.backbone.decoder.segmentation_head[-1]
+            head_weights = self._get_last_conv_weight(last_layer)
+            if head_weights is None:
+                raise RuntimeError("Could not find nn.Conv2d in the segmentation_head to extract weights.")
+            
             self._hook.set_inputs(S_mask=boundary_mask, labels=labels, head_weights=head_weights)
             self._hook_handle = self._hook.attach(feature_map)
             
