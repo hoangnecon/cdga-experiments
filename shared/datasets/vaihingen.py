@@ -75,6 +75,11 @@ class VaihingenDataset(Dataset):
         img = np.array(Image.open(img_path).convert('RGB'))
         mask = np.array(Image.open(mask_path).convert('L'))
 
+        # The HuggingFace Geo_dataset (wsdwJohn1231) stores Vaihingen labels as 1-indexed (1-6).
+        # CrossEntropyLoss expects 0-indexed labels (0-5). Remap, keeping ignore_index=255 intact.
+        valid = (mask != 255)
+        mask[valid] = mask[valid] - 1
+
         # Apply albumentations transform
         augmented = self.transform(image=img, mask=mask)
         img_aug = augmented['image']

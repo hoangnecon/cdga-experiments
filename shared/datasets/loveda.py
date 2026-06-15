@@ -76,7 +76,14 @@ class LoveDADataset(Dataset):
         img = np.array(Image.open(img_path).convert('RGB'))
         mask = np.array(Image.open(mask_path).convert('L'))
 
-        # Apply albumentations transform
+        # The HuggingFace Geo_dataset (wsdwJohn1231) stores LoveDA labels as 1-indexed (1-7),
+        # with pixel value 0 = background/ignore. Remap:
+        #   - 0 (background) → 255 (ignore_index)
+        #   - 1-7 → 0-6 (0-indexed for CrossEntropyLoss with num_classes=7)
+        mask[mask == 0] = 255
+        valid = (mask != 255)
+        mask[valid] = mask[valid] - 1
+
         augmented = self.transform(image=img, mask=mask)
         img_aug = augmented['image']
         mask_aug = augmented['mask']
