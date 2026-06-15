@@ -114,16 +114,23 @@ class CDGAHook:
         if self._mask is None:
             return grad
 
+        B, C_f, H, W = grad.shape
+        import torch.nn.functional as F
+        
+        # Resize mask to match feature map spatial dimensions
+        mask_resized = F.interpolate(self._mask, size=(H, W), mode='bilinear', align_corners=False)
+
         if self.mode == "class_directed":
             if self._labels is None or self._head_weights is None:
                 raise ValueError("labels and head_weights must be set for class_directed mode. Call set_inputs() first.")
             
-            # shape of grad: (B, C_f, H, W)
-            B, C_f, H, W = grad.shape
             num_classes = self._head_weights.size(0)
             
+            # Resize labels using nearest neighbor to preserve class indices
+            labels_resized = F.interpolate(self._labels.unsqueeze(1).float(), size=(H, W), mode='nearest').squeeze(1).long()
+            
             # Clamp labels to valid class range [0, C-1] for prototype lookup (handles ignore index)
-            safe_labels = torch.clamp(self._labels, 0, num_classes - 1)
+            safe_labels = torch.clamp(labels_resized, 0, num_classes - 1)
             
             # Lookup correct class prototype per pixel: w_k shape (B, H, W, C_f)
             w_k = self._head_weights[safe_labels]
@@ -135,17 +142,17 @@ class CDGAHook:
             proj = (dot / norm_sq) * w_k  # shape (B, C_f, H, W)
             
             # Only modulate at non-ignored pixels
-            valid_mask = (self._labels != 255).unsqueeze(1).float()
+            valid_mask = (labels_resized != 255).unsqueeze(1).float()
             
             # Modulate gradient: add gamma * S * proj to original gradient
-            modulated = grad + self.gamma * self._mask * proj * valid_mask
+            modulated = grad + self.gamma * mask_resized * proj * valid_mask
         else:
             # Simple scalar modulation
-            modulated = grad * (1.0 + self.gamma * self._mask)
+            modulated = grad * (1.0 + self.gamma * mask_resized)
 
         # Log stats
         with torch.no_grad():
-            boundary_region = (self._mask > 0.5)
+            boundary_region = (mask_resized > 0.5)
             interior_region = ~boundary_region
             gnorm = grad.norm(dim=1, keepdim=True)
             mnorm = modulated.norm(dim=1, keepdim=True)
