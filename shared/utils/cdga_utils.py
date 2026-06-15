@@ -117,8 +117,8 @@ class CDGAHook:
         B, C_f, H, W = grad.shape
         import torch.nn.functional as F
         
-        # Resize mask to match feature map spatial dimensions
-        mask_resized = F.interpolate(self._mask, size=(H, W), mode='bilinear', align_corners=False)
+        # Resize mask to match feature map spatial dimensions, and cast to grad's dtype (for AMP)
+        mask_resized = F.interpolate(self._mask, size=(H, W), mode='bilinear', align_corners=False).to(grad.dtype)
 
         if self.mode == "class_directed":
             if self._labels is None or self._head_weights is None:
@@ -134,7 +134,7 @@ class CDGAHook:
             
             # Lookup correct class prototype per pixel: w_k shape (B, H, W, C_f)
             w_k = self._head_weights[safe_labels]
-            w_k = w_k.permute(0, 3, 1, 2)  # shape (B, C_f, H, W)
+            w_k = w_k.permute(0, 3, 1, 2).to(grad.dtype)  # shape (B, C_f, H, W)
             
             # Project grad onto w_k: proj = <grad, w_k> / ||w_k||^2 * w_k
             dot = (grad * w_k).sum(dim=1, keepdim=True)  # shape (B, 1, H, W)
@@ -142,7 +142,7 @@ class CDGAHook:
             proj = (dot / norm_sq) * w_k  # shape (B, C_f, H, W)
             
             # Only modulate at non-ignored pixels
-            valid_mask = (labels_resized != 255).unsqueeze(1).float()
+            valid_mask = (labels_resized != 255).unsqueeze(1).to(grad.dtype)
             
             # Modulate gradient: add gamma * S * proj to original gradient
             modulated = grad + self.gamma * mask_resized * proj * valid_mask
@@ -164,7 +164,7 @@ class CDGAHook:
                 self.grad_stats["orig_interior"] = gnorm[interior_region.expand_as(gnorm)].mean().item()
                 self.grad_stats["mod_interior"] = mnorm[interior_region.expand_as(mnorm)].mean().item()
 
-        return modulated
+        return modulated.to(grad.dtype)
 
     def attach(self, feature_map: torch.Tensor) -> object:
         """Attach hook to feature map."""
