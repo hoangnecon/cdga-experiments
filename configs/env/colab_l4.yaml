@@ -1,0 +1,13 @@
+# Environment config for Google Colab L4 (24GB VRAM)
+# File: configs/env/colab_l4.yaml
+
+data:
+  data_root: /content/data/vaihingen  # Local SSD path
+  num_workers: 4                      # L4 instance has more vCPUs
+
+train:
+  batch_size: 16                      # Utilize 24GB VRAM
+  amp: true
+
+output:
+  runs_dir: /content/drive/MyDrive/WACV_EXP/experiments/runs  # Save output to Drive

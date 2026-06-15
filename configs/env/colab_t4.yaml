@@ -1,0 +1,13 @@
+# Environment config for Google Colab T4 (16GB VRAM)
+# File: configs/env/colab_t4.yaml
+
+data:
+  data_root: /content/data/vaihingen  # Local SSD path
+  num_workers: 2                      # T4 instance usually has 2 vCPUs
+
+train:
+  batch_size: 8                       # Safe for ResNet-18 UNetFormer on 16GB
+  amp: true                           # Use Automatic Mixed Precision
+
+output:
+  runs_dir: /content/drive/MyDrive/WACV_EXP/experiments/runs  # Save output to Drive
