@@ -7,7 +7,7 @@ project:
 data:
   dataset: potsdamRGB
   data_root: MUST_BE_SET
-  num_classes: 6
+  num_classes: 5
   ignore_index: 255
   crop_size: 512
   stride: 32
