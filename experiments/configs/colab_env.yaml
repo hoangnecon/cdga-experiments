@@ -1,9 +1,0 @@
-# colab_env.yaml
-# Environment configuration for running experiments on Google Colab.
-# Directs outputs to Google Drive and sets appropriate system resources.
-
-data:
-  num_workers: 2                      # Standard Colab VM recommended workers
-
-output:
-  runs_dir: /content/drive/MyDrive/WACV_EXP/experiments/runs  # Direct checkpoints/logs to Google Drive
