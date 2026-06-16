@@ -376,6 +376,10 @@ def run_training(build_model_fn: Callable[[dict], nn.Module], description: str =
     logger.info(f"Config: {args.config}")
     logger.info(f"Device: {device} ({cfg['_runtime']['gpu']})")
     logger.info(f"Seed: {cfg['project']['seed']}")
+    
+    # Log formatted configuration table
+    logger.log_config(cfg)
+
 
     if args.dry_run:
         logger.info("[DRY RUN] Setup validated successfully. Exiting.")

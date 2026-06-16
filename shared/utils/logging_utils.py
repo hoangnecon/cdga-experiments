@@ -87,6 +87,60 @@ class ExperimentLogger:
         self._file_logger.info(line)
         self._write_jsonl({"type": "info", "message": message, "ts": _now_str()})
 
+    def log_config(self, cfg: dict) -> None:
+        """Log a formatted table of all configuration parameters.
+
+        Args:
+            cfg: Configuration dictionary (can be nested).
+        """
+        # Flatten nested config dict
+        def _flatten(d: dict, prefix: str = "") -> list[tuple[str, Any]]:
+            items = []
+            for k, v in d.items():
+                # Skip runtime section as it contains dynamic info printed elsewhere
+                if k == "_runtime":
+                    continue
+                new_key = f"{prefix}{k}" if not prefix else f"{prefix}.{k}"
+                if isinstance(v, dict):
+                    items.extend(_flatten(v, new_key))
+                else:
+                    items.append((new_key, v))
+            return items
+
+        flat_cfg = sorted(_flatten(cfg))
+        if not flat_cfg:
+            return
+
+        # Determine widths
+        max_key_len = max(len(k) for k, _ in flat_cfg)
+        max_val_len = max(len(str(v)) for _, v in flat_cfg)
+
+        col1_w = max(max_key_len + 2, 30)
+        col2_w = max(max_val_len + 2, 20)
+        total_w = col1_w + col2_w + 3
+
+        lines = []
+        lines.append("=" * total_w)
+        lines.append(f"| {'CONFIGURATION HYPERPARAMETERS':^{total_w - 4}} |")
+        lines.append("=" * total_w)
+        lines.append(f"| {'Parameter':<{col1_w}} | {'Value':<{col2_w}} |")
+        lines.append("-" * total_w)
+
+        for k, v in flat_cfg:
+            val_str = f"{v:.2e}" if isinstance(v, float) and v < 1e-3 else str(v)
+            lines.append(f"| {k:<{col1_w}} | {val_str:<{col2_w}} |")
+
+        lines.append("=" * total_w)
+
+        # Log each line
+        for line in lines:
+            print(line, file=sys.stdout, flush=True)
+            self._file_logger.info(line)
+
+        # Write flat config to JSONL as a single record
+        self._write_jsonl({"type": "config_table", "config": dict(flat_cfg), "ts": _now_str()})
+
+
     def warning(self, message: str) -> None:
         line = f"[{_now_str()}] {_C_YELLOW}[WARNING]{_C_RESET} {message}"
         print(line, file=sys.stdout, flush=True)
