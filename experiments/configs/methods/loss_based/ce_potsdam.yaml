@@ -1,0 +1,8 @@
+# Method configuration for Vanilla Cross Entropy (CE) on ISPRS Potsdam
+# File: experiments/configs/methods/loss_based/ce_potsdam.yaml
+
+base: ../../base/group_a/unetformer_r18_potsdam.yaml
+
+project:
+  name: wacv2027_baseline_ce_potsdam
+  method: baseline_ce
