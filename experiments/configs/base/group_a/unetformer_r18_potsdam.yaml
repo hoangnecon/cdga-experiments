@@ -18,7 +18,7 @@ data:
     - Low_vegetation
     - Tree
     - Car
-    - Clutter_Background
+  # Note: Clutter (label 6) is remapped to ignore_index=255 in the dataset loader
   augmentation:
     random_flip: true
     random_scale: [0.5, 2.0]
