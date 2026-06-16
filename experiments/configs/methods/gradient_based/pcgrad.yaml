@@ -1,4 +1,4 @@
-# Method configuration for PCGrad (Projected Gradient Descent)
+# Method configuration for PCGrad (Projecting Conflicting Gradients)
 # File: experiments/configs/methods/gradient_based/pcgrad.yaml
 
 base: ../../base/group_a/unetformer_r18_vaihingen.yaml
