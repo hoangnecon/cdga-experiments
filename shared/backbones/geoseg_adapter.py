@@ -126,7 +126,7 @@ def get_feature_and_logits(
 
     # Register temporary hook on the final Conv layer of segmentation_head
     if hasattr(model, "decoder") and hasattr(model.decoder, "segmentation_head"):
-        handle = model.decoder.segmentation_head[-1].register_forward_hook(hook_fn)
+        handle = model.decoder.segmentation_head[0].register_forward_hook(hook_fn)
     else:
         raise AttributeError(
             "Model does not have model.decoder.segmentation_head. "
