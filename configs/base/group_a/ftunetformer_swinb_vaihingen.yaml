@@ -1,0 +1,56 @@
+# Base configuration for FTUNetformer (Swin-B) on ISPRS Vaihingen
+# File: experiments/configs/base/group_a/ftunetformer_swinb_vaihingen.yaml
+
+project:
+  seed: 42
+
+data:
+  dataset: vaihingen
+  data_root: MUST_BE_SET
+  num_classes: 5
+  ignore_index: 255
+  crop_size: 512
+  stride: 32
+  num_workers: 8
+  class_names:
+    - Impervious_surfaces
+    - Building
+    - Low_vegetation
+    - Tree
+    - Car
+    - Clutter_Background
+  augmentation:
+    random_flip: true
+    random_scale: [0.5, 2.0]
+    random_crop: true
+    color_jitter: false
+
+model:
+  backbone: ftunetformer_swinb
+  backbone_slug: ftunetformer_swinb
+  pretrained: true
+  pretrained_path: null
+
+train:
+  epochs: 100
+  batch_size: 4                  # Swin-B is heavier, use batch size 4
+  optimizer: adamw
+  lr: 6.0e-4
+  weight_decay: 2.5e-4
+  scheduler: cosine
+  amp: true
+  grad_clip: 1.0
+  save_every_n_epochs: 10
+
+eval:
+  metrics:
+    - miou
+    - mf1
+    - oa
+    - bf1_3
+    - bf1_5
+  boundary_widths: [3, 5]
+  sliding_window:
+    enabled: true
+    crop_size: 512
+    stride: 32
