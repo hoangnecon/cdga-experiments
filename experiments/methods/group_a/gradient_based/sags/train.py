@@ -11,7 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from shared.trainer import run_training
-from .model import build_model
+from experiments.methods.group_a.gradient_based.sags.model import build_model
 
 if __name__ == "__main__":
     run_training(build_model, description="Train SAGS Model")
