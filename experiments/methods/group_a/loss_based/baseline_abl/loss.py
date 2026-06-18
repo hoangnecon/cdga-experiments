@@ -36,7 +36,7 @@ class LovaszSoftmax(nn.Module):
     def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         probas = F.softmax(logits, dim=1)
         C = probas.shape[1]
-        B, _, H, W = labels.shape
+        B, H, W = labels.shape
         N = H * W  # pixels per image
         labels = labels.clamp(0, C - 1)
         
