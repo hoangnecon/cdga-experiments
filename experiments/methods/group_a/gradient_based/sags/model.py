@@ -24,6 +24,7 @@ class SAGSModel(BaseModelWrapper):
     def forward_train(self, images, labels, boundary_mask=None, **kwargs):
         out = self.backbone(images)
         logits = out[0] if isinstance(out, tuple) else out
+        print(f"[SAGS] logits: {logits.shape}, labels: {labels.shape}", flush=True)
         if boundary_mask is None:
             boundary_mask = torch.zeros(labels.shape, device=labels.device)
 
