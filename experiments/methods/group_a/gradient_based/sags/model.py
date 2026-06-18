@@ -62,16 +62,17 @@ class SAGSAutograd(torch.autograd.Function):
             # Compute G_Z = probs - one_hot(label)
             probs = F.softmax(logits, dim=1)
             k = labels.clamp(0, K - 1)
-            G_Z = probs.clone()
-            G_Z.scatter_(1, k.unsqueeze(1), probs.gather(1, k.unsqueeze(1)) - 1.0)
 
-            # Resize labels and mask to logit resolution
-            if labels.shape[-2:] != (H, W_s):
+            # Resize labels and mask to logit resolution FIRST
+            if k.shape[-2:] != (H, W_s):
                 k = F.interpolate(k.float().unsqueeze(1), size=(H, W_s), mode='nearest').squeeze(1).long()
             if mask.shape[-2:] != (H, W_s):
                 mask = F.interpolate(mask.float(), size=(H, W_s), mode='nearest')
             if mask.dim() == 3:
                 mask = mask.unsqueeze(1)
+
+            G_Z = probs.clone()
+            G_Z.scatter_(1, k.unsqueeze(1), probs.gather(1, k.unsqueeze(1)) - 1.0)
 
             # Compute G_F = W^T · G_Z
             G_F = torch.einsum('kc,bkhw->bchw', W, G_Z)  # (B, C, H, W)
