@@ -39,6 +39,8 @@ class CASModel(BaseModelWrapper):
             S_dist = F.interpolate(S_dist.float(), size=(H, W_s), mode='nearest')
         if S_dist.dim() == 3:
             S_dist = S_dist.unsqueeze(1)
+        # Ensure on correct device
+        S_dist = S_dist.to(device=logits.device)
 
         def cas_hook(g):
             with torch.no_grad():
