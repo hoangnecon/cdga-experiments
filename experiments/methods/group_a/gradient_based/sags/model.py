@@ -98,8 +98,11 @@ class SAGSModel(BaseModelWrapper):
             I = I_c.float()
             correction = gamma * mask.squeeze(1) * I * alpha
             G_Z_mod = G_Z.clone()
-            for b in range(B):
-                G_Z_mod[b, j[b]] -= correction[b]
+            # Subtract correction at j-th channel for each pixel
+            for bi in range(B):
+                for hi in range(H):
+                    for wi in range(W_s):
+                        G_Z_mod[bi, j[bi, hi, wi], hi, wi] -= correction[bi, hi, wi]
 
         # Use G_Z_mod as the logit gradient by register_hook
         def apply_sags_grad(grad):
