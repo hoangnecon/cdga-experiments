@@ -28,40 +28,44 @@ class SAGSModel(BaseModelWrapper):
         self.grad_stats: dict = {}
 
     # ------------------------------------------------------------------
-    # Hook management
+    # Hook management — find seg head dynamically
     # ------------------------------------------------------------------
+    def _find_last_conv(self) -> nn.Conv2d:
+        """Find the LAST Conv2d in the backbone — this is the classification head.
+        
+        For UNetFormer, this is decoder.segmentation_head[-1] (final 1x1 conv).
+        Generic fallback: scan all modules, return the last Conv2d found.
+        """
+        # First try the known GeoSeg path
+        if hasattr(self.backbone, 'decoder') and hasattr(self.backbone.decoder, 'segmentation_head'):
+            seg_head = self.backbone.decoder.segmentation_head
+            children = list(seg_head.children())
+            if children:
+                convs = [c for c in children if isinstance(c, nn.Conv2d)]
+                if convs:
+                    return convs[-1]  # last conv in seg_head
+        
+        # Generic fallback: find last Conv2d anywhere in the model
+        all_convs = [m for m in self.backbone.modules() if isinstance(m, nn.Conv2d)]
+        if not all_convs:
+            raise AttributeError(f"No Conv2d found in {type(self.backbone).__name__}")
+        return all_convs[-1]
+
+    def _hook_before_last_conv(self) -> Any:
+        """Register forward pre-hook on the layer right BEFORE last Conv2d."""
+        last_conv = self._find_last_conv()
+        # Find the module containing the last conv, hook the conv itself with pre-hook
+        return last_conv.register_forward_pre_hook(self._on_pre_forward)
+
     def train_mode(self) -> None:
         self.backbone.train()
-        seg_head_0 = self._get_seg_head_first_conv()
-        self._forward_hook_handle = seg_head_0.register_forward_pre_hook(self._on_pre_forward)
+        self._forward_hook_handle = self._hook_before_last_conv()
 
     def eval_mode(self) -> None:
         self.backbone.eval()
         if self._forward_hook_handle is not None:
             self._forward_hook_handle.remove()
             self._forward_hook_handle = None
-
-    def _get_seg_head(self):
-        if hasattr(self.backbone, 'decoder') and hasattr(self.backbone.decoder, 'segmentation_head'):
-            return self.backbone.decoder.segmentation_head
-        raise AttributeError(f"{type(self.backbone).__name__}: no decoder.segmentation_head")
-
-    def _get_seg_head_first_conv(self) -> nn.Conv2d:
-        seg_head = self._get_seg_head()
-        for m in seg_head.children():
-            if isinstance(m, nn.Conv2d):
-                return m  # first Conv2d
-        raise AttributeError("No Conv2d in seg_head")
-
-    def _get_seg_head_last_conv(self) -> nn.Conv2d:
-        seg_head = self._get_seg_head()
-        last = None
-        for m in seg_head.children():
-            if isinstance(m, nn.Conv2d):
-                last = m
-        if last is None:
-            raise AttributeError("No Conv2d in seg_head")
-        return last  # last Conv2d = classification layer
 
     # ------------------------------------------------------------------
     # Forward hook — capture feature map F before classification head
@@ -176,7 +180,7 @@ class SAGSModel(BaseModelWrapper):
         # Register backward hook on captured feature tensor
         features = self._fwd_features
         if features is not None and features.requires_grad:
-            seg_conv = self._get_seg_head_last_conv()
+            seg_conv = self._find_last_conv()
             W = seg_conv.weight.squeeze(-1).squeeze(-1)  # (K, C)
             self._set_hook_context(labels, logits, boundary_mask, W)
             features.register_hook(self._make_backward_hook())
