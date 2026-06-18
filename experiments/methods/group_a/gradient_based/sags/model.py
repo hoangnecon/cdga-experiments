@@ -59,7 +59,17 @@ class SAGSModel(BaseModelWrapper):
             w_j = W[j.reshape(-1)].view(B, H, W_s, C).permute(0, 3, 1, 2)
             n2 = (w_j * w_j).sum(dim=1, keepdim=True).clamp(min=1e-8)
             alpha = ((G_F * w_j).sum(dim=1, keepdim=True) / n2).squeeze(1)
-            print("[SAGS] step2 done")
+
+        # Step 3: 3×3 conflict detection
+        with torch.no_grad():
+            G_pad = F.pad(G_F, (1, 1, 1, 1), mode='replicate')
+            lp = F.pad(kc.float(), (1, 1, 1, 1), mode='replicate')
+            Ic = torch.zeros(B, H, W_s, dtype=torch.bool, device=logits.device)
+            for dx, dy in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]:
+                Gn = G_pad[:, :, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
+                ln = lp[:, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
+                Ic |= (ln == j.float()) & (F.cosine_similarity(G_F, Gn, dim=1, eps=1e-8) < self.cosine_threshold)
+            print("[SAGS] step3 done: conflicts=", Ic.float().mean().item())
 
         return self.ce_fn(logits, labels)
 
