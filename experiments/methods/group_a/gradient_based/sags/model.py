@@ -24,6 +24,36 @@ class SAGSModel(BaseModelWrapper):
     def forward_train(self, images, labels, boundary_mask=None, **kwargs):
         out = self.backbone(images)
         logits = out[0] if isinstance(out, tuple) else out
+        if boundary_mask is None:
+            boundary_mask = torch.zeros(labels.shape, device=labels.device)
+
+        W = self._get_W()
+        K = W.shape[0]
+        B, _, H, W_s = logits.shape
+
+        # Resize
+        k = labels
+        if k.shape[-2:] != (H, W_s):
+            k = F.interpolate(k.float().unsqueeze(1), size=(H, W_s), mode='nearest').squeeze(1).long()
+        m = boundary_mask
+        if m.shape[-2:] != (H, W_s):
+            m = F.interpolate(m.float(), size=(H, W_s), mode='nearest')
+        if m.dim() == 3:
+            m = m.unsqueeze(1)
+
+        # Step 1: G_Z, G_F, j
+        with torch.no_grad():
+            probs = F.softmax(logits.detach(), dim=1)
+            kc = k.clamp(0, K - 1)
+            print(f"[SAGS] step1 shapes: logits={logits.shape}, kc={kc.shape}, W={W.shape}")
+            G_Z = probs.clone()
+            G_Z.scatter_(1, kc.unsqueeze(1), probs.gather(1, kc.unsqueeze(1)) - 1.0)
+            G_F = torch.einsum('kc,bkhw->bchw', W, G_Z)
+            pm = probs.clone()
+            pm.scatter_(1, kc.unsqueeze(1), 0.0)
+            j = pm.argmax(dim=1)
+            print("[SAGS] step1 done")
+
         return self.ce_fn(logits, labels)
 
     def forward_inference(self, images):
