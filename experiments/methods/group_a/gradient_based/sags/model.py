@@ -66,10 +66,11 @@ class SAGSModel(BaseModelWrapper):
 
             correction = self.gamma * m.squeeze(1) * Ic.float() * alpha
             mask_j = F.one_hot(j, num_classes=K).permute(0, 3, 1, 2).float()
-            G_Z_mod = G_Z - correction.unsqueeze(1) * mask_j
 
-        logits.register_hook(lambda g, gm=G_Z_mod: gm)
-        return self.ce_fn(logits, labels)
+        # SAGS via pseudo-loss (AMP-compatible):
+        # subtracting correction from logits_j gradient ≡ adding -correction*logits_j to loss
+        loss_sags = -(correction.detach().unsqueeze(1) * mask_j.detach() * logits).sum()
+        return self.ce_fn(logits, labels) + loss_sags
 
     def forward_inference(self, images):
         with torch.no_grad():
