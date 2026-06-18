@@ -36,6 +36,8 @@ class LovaszSoftmax(nn.Module):
     def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         probas = F.softmax(logits, dim=1)
         C = probas.shape[1]
+        B, _, H, W = labels.shape
+        N = H * W  # pixels per image
         labels = labels.clamp(0, C - 1)
         
         loss = torch.tensor(0.0, device=logits.device)
@@ -43,14 +45,15 @@ class LovaszSoftmax(nn.Module):
         for c in range(C):
             if c == self.ignore_index:
                 continue
-            fg = (labels == c).float().view(labels.shape[0], -1)         # (B, N)
+            fg = (labels == c).float().view(B, -1)                   # (B, N)
             if fg.sum() == 0:
                 continue
-            errors = (fg - probas[:, c].view(probas.shape[0], -1)).abs()  # (B, N)
+            errors = (fg - probas[:, c].view(B, -1)).abs()            # (B, N)
             errors_sorted, perm = torch.sort(errors, dim=1, descending=True)
             fg_sorted = fg.gather(1, perm)
             grad = _lovasz_grad(fg_sorted)
-            loss += torch.dot(F.relu(errors_sorted.view(-1)), grad.view(-1))
+            # Normalize by total pixels (B*N) for proper loss scale
+            loss += torch.dot(F.relu(errors_sorted.reshape(-1)), grad.reshape(-1)) / (B * N)
             n_class += 1
         
         return loss / max(1, n_class)
