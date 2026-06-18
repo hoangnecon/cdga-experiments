@@ -14,9 +14,9 @@ import torch.nn.functional as F
 
 def _lovasz_grad(gt_sorted: torch.Tensor) -> torch.Tensor:
     """Compute Lovász gradient (Eq. 6 in Berman et al. 2018)."""
-    gts = gt_sorted.sum(dim=1)
-    intersection = gts - gt_sorted.float().cumsum(dim=1)
-    union = gts + (1 - gt_sorted).float().cumsum(dim=1)
+    gts = gt_sorted.sum(dim=1, keepdim=True)      # (B, 1)
+    intersection = gts - gt_sorted.float().cumsum(dim=1)  # (B, N)
+    union = gts + (1 - gt_sorted).float().cumsum(dim=1)   # (B, N)
     jaccard = 1.0 - intersection / union.clamp(min=1e-7)
     if jaccard.shape[1] > 1:
         jaccard[:, 1:] = jaccard[:, 1:] - jaccard[:, :-1]
