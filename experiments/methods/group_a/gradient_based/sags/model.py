@@ -45,7 +45,6 @@ class SAGSModel(BaseModelWrapper):
         with torch.no_grad():
             probs = F.softmax(logits.detach(), dim=1)
             kc = k.clamp(0, K - 1)
-            print(f"[SAGS] step1 shapes: logits={logits.shape}, kc={kc.shape}, W={W.shape}")
             G_Z = probs.clone()
             G_Z.scatter_(1, kc.unsqueeze(1), probs.gather(1, kc.unsqueeze(1)) - 1.0)
             G_F = torch.einsum('kc,bkhw->bchw', W, G_Z)
@@ -53,6 +52,14 @@ class SAGSModel(BaseModelWrapper):
             pm.scatter_(1, kc.unsqueeze(1), 0.0)
             j = pm.argmax(dim=1)
             print("[SAGS] step1 done")
+
+        # Step 2: w_j projection
+        with torch.no_grad():
+            B, C = G_F.shape[0], G_F.shape[1]
+            w_j = W[j.reshape(-1)].view(B, H, W_s, C).permute(0, 3, 1, 2)
+            n2 = (w_j * w_j).sum(dim=1, keepdim=True).clamp(min=1e-8)
+            alpha = ((G_F * w_j).sum(dim=1, keepdim=True) / n2).squeeze(1)
+            print("[SAGS] step2 done")
 
         return self.ce_fn(logits, labels)
 
