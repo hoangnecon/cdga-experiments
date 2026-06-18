@@ -97,14 +97,13 @@ class SAGSAutograd(torch.autograd.Function):
                 cos_val = F.cosine_similarity(G_F, Gn, dim=1, eps=1e-8)
                 I_c = I_c | ((ln == j.float()) & (cos_val < threshold)).bool()
 
-            # Step 4: modify G_Z — only j-th channel via advanced indexing
-            I = I_c.float().unsqueeze(1)                       # (B, 1, H, W_s)
-            correction = (mask * I * alpha.squeeze(1)).unsqueeze(1)  # (B, 1, H, W_s)
+            # Step 4: modify G_Z — only j-th channel
+            I = I_c.float().unsqueeze(1)  # (B, 1, H, W_s)
+            correction = (mask * I * alpha.squeeze(1))  # (B, H, W_s)
             
-            batch_idx = torch.arange(B, device=G_Z.device).view(B, 1, 1, 1).expand(-1, 1, H, W_s)
-            chan_idx = j.unsqueeze(1)  # (B, 1, H, W_s)
             G_Z_mod = G_Z.clone()
-            G_Z_mod[batch_idx, chan_idx] -= correction
+            for b in range(B):
+                G_Z_mod[b, j[b]] -= correction[b]
 
             ctx.has_surgery = True
 
