@@ -1,0 +1,10 @@
+# CAS: Conflict-Aware Scaling
+base: ../../base/group_a/unetformer_r18_vaihingen.yaml
+
+project:
+  name: wacv2027_cas
+  method: cas
+
+cas:
+  enabled: true
+  gamma: 1.0

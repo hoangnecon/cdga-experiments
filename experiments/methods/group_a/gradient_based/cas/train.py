@@ -1,8 +1,4 @@
-#!/usr/bin/env python3
-"""
-Method: SAGS
-Component: Training Entry Point
-"""
+"""CAS: Training entry point."""
 import sys
 from pathlib import Path
 
@@ -11,7 +7,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from shared.trainer import run_training
-from experiments.methods.group_a.gradient_based.sags.model import build_model
+from experiments.methods.group_a.gradient_based.cas.model import build_model
 
 if __name__ == "__main__":
-    run_training(build_model, description="Train SAGS Model")
+    run_training(build_model, description="Train CAS Model")
