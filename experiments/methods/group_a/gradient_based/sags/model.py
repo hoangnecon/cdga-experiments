@@ -90,7 +90,7 @@ class SAGSAutograd(torch.autograd.Function):
             # Step 3: 3×3 conflict detection
             G_pad = F.pad(G_F, (1, 1, 1, 1), mode='replicate')
             lab_pad = F.pad(k.float(), (1, 1, 1, 1), mode='replicate')
-            I_c = torch.zeros(B, H, W_s, device=G_F.device)
+            I_c = torch.zeros(B, H, W_s, device=G_F.device, dtype=torch.bool)
             for dx, dy in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]:
                 Gn = G_pad[:, :, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
                 ln = lab_pad[:, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
