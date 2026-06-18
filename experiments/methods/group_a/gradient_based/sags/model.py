@@ -95,7 +95,7 @@ class SAGSAutograd(torch.autograd.Function):
                 Gn = G_pad[:, :, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
                 ln = lab_pad[:, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
                 cos_val = F.cosine_similarity(G_F, Gn, dim=1, eps=1e-8)
-                I_c = I_c | ((ln == j.float()) & (cos_val < threshold))
+                I_c = I_c | ((ln == j.float()) & (cos_val < threshold)).bool()
 
             # Step 4: modify G_Z — only j-th channel
             I = I_c.float().unsqueeze(1)                       # (B, 1, H, W_s)
