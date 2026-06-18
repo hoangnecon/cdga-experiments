@@ -51,7 +51,7 @@ class SAGSModel(BaseModelWrapper):
             raise AttributeError(f"No Conv2d found in {type(self.backbone).__name__}")
         return all_convs[-1]
 
-    def _hook_before_last_conv(self) -> Any:
+    def _hook_before_last_conv(self):
         """Register forward pre-hook on the layer right BEFORE last Conv2d."""
         last_conv = self._find_last_conv()
         # Find the module containing the last conv, hook the conv itself with pre-hook
