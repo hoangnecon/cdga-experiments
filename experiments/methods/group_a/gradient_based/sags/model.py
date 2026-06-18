@@ -46,9 +46,8 @@ class SAGSModel(BaseModelWrapper):
         self.grad_stats: dict = {}
 
     def _capture_features(self, module, input, output):
-        """Forward hook: capture features right before classification head."""
-        # Detach and clone to avoid interfering with forward graph
-        self._features_for_hook = output
+        """Forward hook: capture features BEFORE classification head (input to seg head)."""
+        self._features_for_hook = input[0]  # input[0] is the feature tensor
 
     def _sags_backward_hook(self, grad: torch.Tensor) -> torch.Tensor:
         """Backward hook: modify gradient on feature map (G_F)."""
@@ -117,14 +116,15 @@ class SAGSModel(BaseModelWrapper):
             return G_F - correction
 
     def train_mode(self) -> None:
-        """Register hooks — only during training."""
+        """Register hooks — capture features before classification head."""
         self.backbone.train()
-        # Hook the feature extraction point before classification head
-        if hasattr(self.backbone, 'backbone'):
-            target = self.backbone.backbone
+        # Hook the last layer BEFORE segmentation_head
+        if hasattr(self.backbone, 'decoder') and hasattr(self.backbone.decoder, 'segmentation_head'):
+            seg_head = self.backbone.decoder.segmentation_head
+            # Hook the first layer of seg_head to capture its input (the feature map)
+            target = seg_head[0] if isinstance(seg_head, nn.Sequential) else seg_head
         else:
             target = self.backbone
-        # Hook last feature-producing layer
         self._feature_hook_handle = target.register_forward_hook(self._capture_features)
 
     def eval_mode(self) -> None:
@@ -136,17 +136,25 @@ class SAGSModel(BaseModelWrapper):
 
     def _find_seg_head_conv(self) -> nn.Conv2d:
         """Find the final 1x1 conv layer of segmentation head."""
-        seg_head = None
+        # GeoSeg UNetFormer: decoder.segmentation_head[-1]
+        if hasattr(self.backbone, 'decoder') and hasattr(self.backbone.decoder, 'segmentation_head'):
+            seg_head = self.backbone.decoder.segmentation_head
+            if isinstance(seg_head, nn.Sequential):
+                # Find last Conv2d in Sequential
+                for m in reversed(seg_head):
+                    if isinstance(m, nn.Conv2d):
+                        return m
+        # Generic fallback
         for name in ['head', 'decode_head', 'seg_head']:
             if hasattr(self.backbone, name):
-                seg_head = getattr(self.backbone, name)
-                break
-        if seg_head is None:
-            raise AttributeError("Cannot find segmentation head")
-        convs = [m for m in seg_head.modules() if isinstance(m, nn.Conv2d)]
-        if not convs:
-            raise AttributeError("No Conv2d in seg head")
-        return convs[-1]
+                m = getattr(self.backbone, name)
+                convs = [c for c in m.modules() if isinstance(c, nn.Conv2d)]
+                if convs:
+                    return convs[-1]
+        raise AttributeError(
+            "Cannot find segmentation head Conv2d. "
+            f"Backbone type: {type(self.backbone).__name__}"
+        )
 
     def forward_train(
         self,
