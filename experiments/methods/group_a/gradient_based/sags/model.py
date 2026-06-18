@@ -66,60 +66,8 @@ class SAGSModel(BaseModelWrapper):
 
         # Capture current state for the hook closure
         def sags_hook(G_Z: torch.Tensor) -> torch.Tensor:
-            if gamma <= 0:
-                return G_Z
-
-            B = G_Z.shape[0]
-            _, _, HZ, WZ = G_Z.shape
-
-            with torch.no_grad():
-                print(f"[SAGS] G_Z shape: {G_Z.shape}, labels shape: {k_labels.shape}, mask shape: {boundary_mask.shape}")
-                # Resize labels/mask to logit resolution
-                k = k_labels
-                if k.shape[-2:] != (HZ, WZ):
-                    k = F.interpolate(k.float().unsqueeze(1), size=(HZ, WZ), mode='nearest').squeeze(1).long()
-                mask = boundary_mask
-                if mask.shape[-2:] != (HZ, WZ):
-                    mask = F.interpolate(mask.float(), size=(HZ, WZ), mode='nearest')
-                if mask.dim() == 3:
-                    mask = mask.unsqueeze(1)
-
-                # G_F = W^T · G_Z
-                G_F = torch.einsum('kc,bkhw->bchw', W, G_Z)  # (B, C, HZ, WZ)
-
-                # Step 1: competing class j
-                pm = probs.clone()
-                pm.scatter_(1, k.unsqueeze(1), 0.0)
-                j = pm.argmax(dim=1)  # (B, HZ, WZ)
-
-                # Step 2: projection coefficient
-                w_j = W[j.reshape(-1)].view(B, HZ, WZ, C).permute(0, 3, 1, 2)
-                wj_norm2 = (w_j * w_j).sum(dim=1, keepdim=True).clamp(min=1e-8)
-                dot = (G_F * w_j).sum(dim=1, keepdim=True)
-                alpha = (dot / wj_norm2).squeeze(1)
-
-                # Step 3: 3×3 conflict detection
-                G_pad = F.pad(G_F, (1, 1, 1, 1), mode='replicate')
-                lab_pad = F.pad(k.float(), (1, 1, 1, 1), mode='replicate')
-                I_c = torch.zeros(B, HZ, WZ, dtype=torch.bool, device=G_Z.device)
-                for dx, dy in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]:
-                    Gn = G_pad[:, :, 1+dx:1+dx+HZ, 1+dy:1+dy+WZ]
-                    ln = lab_pad[:, 1+dx:1+dx+HZ, 1+dy:1+dy+WZ]
-                    cos_val = F.cosine_similarity(G_F, Gn, dim=1, eps=1e-8)
-                    I_c = I_c | ((ln == j.float()) & (cos_val < threshold))
-
-                # Step 4: G_Z_j -= gamma * mask * I_conflict * alpha
-                I = I_c.float()
-                correction = gamma * mask.squeeze(1) * I * alpha
-
-                G_Z_mod = G_Z.clone()
-                for b in range(B):
-                    G_Z_mod[b, j[b]] -= correction[b]
-
-                self.grad_stats = {'conflict_ratio': I_c.float().mean().item(),
-                                   'proj_magnitude': alpha.abs().mean().item()}
-
-                return G_Z_mod
+            # DEBUG: no-op hook to verify backend works
+            return G_Z
 
         # Register the hook — fires when gradient reaches logits during backward
         logits.register_hook(sags_hook)
