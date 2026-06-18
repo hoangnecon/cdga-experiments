@@ -69,8 +69,14 @@ class SAGSModel(BaseModelWrapper):
                 Gn = G_pad[:, :, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
                 ln = lp[:, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
                 Ic |= (ln == j.float()) & (F.cosine_similarity(G_F, Gn, dim=1, eps=1e-8) < self.cosine_threshold)
-            print("[SAGS] step3 done: conflicts=", Ic.float().mean().item())
 
+        # Step 4: correction + hook
+        with torch.no_grad():
+            correction = self.gamma * m.squeeze(1) * Ic.float() * alpha
+            mask_j = F.one_hot(j, num_classes=K).permute(0, 3, 1, 2).float()
+            G_Z_mod = G_Z - correction.unsqueeze(1) * mask_j
+
+        logits.register_hook(lambda g, gm=G_Z_mod: gm * g)
         return self.ce_fn(logits, labels)
 
     def forward_inference(self, images):
