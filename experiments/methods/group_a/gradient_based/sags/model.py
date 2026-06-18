@@ -83,15 +83,16 @@ class SAGSModel(BaseModelWrapper):
 
             # --- 3×3 neighborhood cosine similarity conflict detection ---
             G_F_pad = F.pad(G_F, (1, 1, 1, 1), mode='replicate')
-            j_pad = F.pad(j.float(), (1, 1, 1, 1), mode='replicate')
+            labels_pad = F.pad(k_clamped.float(), (1, 1, 1, 1), mode='replicate')
 
             I_conflict = torch.zeros(B, H, W, device=G_F.device)
             offsets = [(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)]
             for dx, dy in offsets:
                 G_F_n = G_F_pad[:, :, 1+dx:1+dx+H, 1+dy:1+dy+W]
-                j_n = j_pad[:, 1+dx:1+dx+H, 1+dy:1+dy+W]
+                label_n = labels_pad[:, 1+dx:1+dx+H, 1+dy:1+dy+W]
                 cos = F.cosine_similarity(G_F, G_F_n, dim=1, eps=1e-8)
-                conflict = (j_n == j.float()) & (cos < threshold)
+                # Conflict: neighbor's GT label IS the competing class j AND cosine < threshold
+                conflict = (label_n == j.float()) & (cos < threshold)
                 I_conflict = I_conflict | conflict
 
             # --- Apply surgical projection ---
