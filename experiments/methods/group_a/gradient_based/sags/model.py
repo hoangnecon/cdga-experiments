@@ -112,6 +112,17 @@ class SAGSModel(BaseModelWrapper):
             K = weight.shape[0]
 
             with torch.no_grad():
+                # Resize context tensors to feature map resolution
+                _, _, H, W = G_F.shape
+                if labels.shape[-2:] != (H, W):
+                    labels = F.interpolate(
+                        labels.float().unsqueeze(1), size=(H, W), mode='nearest'
+                    ).squeeze(1).long()
+                if mask.shape[-2:] != (H, W):
+                    mask = F.interpolate(mask, size=(H, W), mode='nearest')
+                if probs.shape[-2:] != (H, W):
+                    probs = F.interpolate(probs, size=(H, W), mode='bilinear')
+
                 # Step 1: competing class j = argmax_{c≠k} p_c
                 k = labels.clamp(0, K - 1)
                 pm = probs.clone()
