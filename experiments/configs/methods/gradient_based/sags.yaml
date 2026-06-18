@@ -1,0 +1,14 @@
+# Method configuration for SAGS (Spatially-Aware Gradient Surgery)
+# File: experiments/configs/methods/gradient_based/sags.yaml
+
+base: ../../base/group_a/unetformer_r18_vaihingen.yaml
+
+project:
+  name: wacv2027_sags
+  method: sags
+
+sags:
+  enabled: true
+  gamma: 1.0               # Gradient surgery strength (0=CE, 1.0=full projection)
+  cosine_threshold: 0.0    # Cosine similarity threshold for conflict (<0 = conflict)
+  hook_layer: last          # Which feature layer to hook
