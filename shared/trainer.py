@@ -453,6 +453,10 @@ def run_training(build_model_fn: Callable[[dict], nn.Module], description: str =
     total_epochs = cfg["train"]["epochs"]
 
     for epoch in range(start_epoch, total_epochs + 1):
+        # Sync epoch to model for phase-based methods (e.g., ABL activates at epoch 80)
+        if hasattr(model, 'set_epoch'):
+            model.set_epoch(epoch)
+        
         train_metrics = train_one_epoch(
             model, train_loader, optimizer, device, scaler, cfg
         )

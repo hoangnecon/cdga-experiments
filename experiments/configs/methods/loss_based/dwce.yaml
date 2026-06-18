@@ -9,6 +9,4 @@ project:
 
 dwce:
   enabled: true
-  gamma: 10
-  sigma: 5.0
-  decay_fn: gaussian
+  gamma: 1.0

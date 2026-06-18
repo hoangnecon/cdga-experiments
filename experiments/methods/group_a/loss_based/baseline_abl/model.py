@@ -1,15 +1,20 @@
 """
 Method: Active Boundary Loss (ABL)
 Component: Model Wrapper
-Ref: rules/CONVENTIONS.md
+Ref: Wang et al., AAAI 2022 — CE + IoU + ABL
 """
 import torch
 import torch.nn as nn
 from shared.backbones.base_wrapper import BaseModelWrapper
-from .loss import ABLLoss
+from .loss import ABLLoss, LovaszSoftmax
+
 
 class ABLModel(BaseModelWrapper):
-    """ABL Model Wrapper — faithful to Wang et al., AAAI 2022."""
+    """ABL Model Wrapper — faithful to Wang et al., AAAI 2022.
+    
+    Uses CE + IoU + ABL, matching the paper's three-component loss.
+    ABL activates at epoch 80 (phase 2 per paper).
+    """
     def __init__(self, backbone: nn.Module, cfg: dict) -> None:
         super().__init__(backbone, cfg)
         ignore_index = cfg["data"].get("ignore_index", 255)
@@ -19,30 +24,21 @@ class ABLModel(BaseModelWrapper):
         self.abl_weight = cfg["abl"].get("weight", 1.0)
         
         self.ce_fn = nn.CrossEntropyLoss(ignore_index=ignore_index)
+        self.iou_fn = LovaszSoftmax(ignore_index=ignore_index)
         self.abl_fn = ABLLoss(
             max_N_ratio=max_N_ratio,
             ignore_index=ignore_index,
             max_clip_dist=max_clip_dist,
             is_detach=is_detach,
+            label_smoothing=0.2,
         )
         
-        self.step_counter = 0
-        self.total_epochs = cfg["train"].get("epochs", 100)
-        self.start_epoch = int(0.8 * self.total_epochs)
-        
-        # Estimate steps per epoch based on dataset
-        dataset = cfg["data"]["dataset"].lower()
-        batch_size = cfg["train"].get("batch_size", 8)
-        if "vaihingen" in dataset:
-            num_samples = 1487
-        elif "potsdam" in dataset:
-            num_samples = 10947
-        elif "loveda" in dataset:
-            num_samples = 1156
-        else:
-            num_samples = 1000  # Fallback
-            
-        self.steps_per_epoch = max(1, num_samples // batch_size)
+        self._current_epoch = 0
+        self.start_epoch = int(0.8 * cfg["train"].get("epochs", 100))
+
+    def set_epoch(self, epoch: int) -> None:
+        """Called by trainer each epoch to sync ABL phase activation."""
+        self._current_epoch = epoch
 
     def forward_train(
         self,
@@ -57,16 +53,12 @@ class ABLModel(BaseModelWrapper):
             logits = out
             
         ce_loss = self.ce_fn(logits, labels)
+        iou_loss = self.iou_fn(logits, labels)
+        loss = ce_loss + iou_loss
         
-        # Calculate current epoch
-        self.step_counter += 1
-        current_epoch = self.step_counter / self.steps_per_epoch
-        
-        if current_epoch >= self.start_epoch:
+        if self._current_epoch >= self.start_epoch:
             abl_loss = self.abl_fn(logits, labels)
-            loss = ce_loss + self.abl_weight * abl_loss
-        else:
-            loss = ce_loss
+            loss = loss + self.abl_weight * abl_loss
             
         return loss
 
@@ -78,6 +70,7 @@ class ABLModel(BaseModelWrapper):
             else:
                 logits = out
             return logits.argmax(dim=1)
+
 
 def build_model(cfg: dict) -> BaseModelWrapper:
     """Factory function for ABLModel."""

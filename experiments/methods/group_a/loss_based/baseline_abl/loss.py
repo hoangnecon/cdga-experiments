@@ -4,18 +4,56 @@ Component: Loss Definition
 Ref: 
     - Wang et al., AAAI 2022: "Active Boundary Loss for Semantic Segmentation"
     - Official code: tmp/active-boundary-loss/abl.py
+    - Lovász-Softmax: Berman et al., CVPR 2018
     - rules/CONVENTIONS.md
-
-This implementation FAITHFULLY follows the official code line-by-line.
-Key components:
-  1. Adaptive epsilon PDB detection (while-loop, eps *= 1.2)
-  2. 9-position direction prediction (8 neighbors + center index 8)
-  3. Center-exclusion filtering (direction_gt != 8)
-  4. KL divergence: KL(neighbor || center) = softmax(neigh) * (log_softmax(neigh) - log_softmax(center))
 """
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+def _lovasz_grad(gt_sorted: torch.Tensor) -> torch.Tensor:
+    """Compute Lovász gradient (Eq. 6 in Berman et al. 2018)."""
+    gts = gt_sorted.sum(dim=1)
+    intersection = gts - gt_sorted.float().cumsum(dim=1)
+    union = gts + (1 - gt_sorted).float().cumsum(dim=1)
+    jaccard = 1.0 - intersection / union.clamp(min=1e-7)
+    if jaccard.shape[1] > 1:
+        jaccard[:, 1:] = jaccard[:, 1:] - jaccard[:, :-1]
+    return jaccard
+
+
+class LovaszSoftmax(nn.Module):
+    """Multi-class Lovász-Softmax IoU loss — Berman et al., CVPR 2018.
+    
+    Used in the ABL paper (Wang et al., AAAI 2022) as the IoU component
+    of the CE + IoU + ABL training objective.
+    """
+    def __init__(self, ignore_index: int = 255) -> None:
+        super().__init__()
+        self.ignore_index = ignore_index
+
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        probas = F.softmax(logits, dim=1)
+        C = probas.shape[1]
+        labels = labels.clamp(0, C - 1)
+        
+        loss = torch.tensor(0.0, device=logits.device)
+        n_class = 0
+        for c in range(C):
+            if c == self.ignore_index:
+                continue
+            fg = (labels == c).float().view(labels.shape[0], -1)         # (B, N)
+            if fg.sum() == 0:
+                continue
+            errors = (fg - probas[:, c].view(probas.shape[0], -1)).abs()  # (B, N)
+            errors_sorted, perm = torch.sort(errors, dim=1, descending=True)
+            fg_sorted = fg.gather(1, perm)
+            grad = _lovasz_grad(fg_sorted)
+            loss += torch.dot(F.relu(errors_sorted.view(-1)), grad.view(-1))
+            n_class += 1
+        
+        return loss / max(1, n_class)
 
 
 class ABLLoss(nn.Module):
@@ -26,6 +64,7 @@ class ABLLoss(nn.Module):
         ignore_index: Label value to ignore.
         max_clip_dist: Maximum distance for clamping weight.
         is_detach: Whether to detach neighbor logits in KL computation.
+        label_smoothing: Label smoothing for direction CE (paper uses 0.2).
     """
     def __init__(
         self,
@@ -33,12 +72,14 @@ class ABLLoss(nn.Module):
         ignore_index: int = 255,
         max_clip_dist: float = 20.0,
         is_detach: bool = True,
+        label_smoothing: float = 0.2,
     ) -> None:
         super().__init__()
         self.max_N_ratio = max_N_ratio
         self.ignore_index = ignore_index
         self.max_clip_dist = max_clip_dist
         self.is_detach = is_detach
+        self.label_smoothing = label_smoothing
 
     @staticmethod
     def kl_div(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -301,7 +342,8 @@ class ABLLoss(nn.Module):
             return logits.sum() * 0.0
 
         # 4. Cross-entropy loss on direction prediction (official line 193)
-        loss = F.cross_entropy(direction_pred, direction_gt, reduction='none')  # (K',)
+        loss = F.cross_entropy(direction_pred, direction_gt, reduction='none',
+                               label_smoothing=self.label_smoothing)  # (K',)
 
         # 5. Weight by distance: clamp(M, max=20) / 20 (official lines 195-196)
         weight_ce = torch.clamp(weight_ce, max=self.max_clip_dist) / self.max_clip_dist
