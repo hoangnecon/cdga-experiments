@@ -28,7 +28,7 @@ class SAGSModel(BaseModelWrapper):
             boundary_mask = torch.zeros(labels.shape, device=labels.device)
 
         W = self._get_W()
-        K, C = W.shape
+        K = W.shape[0]
         B, _, H, W_s = logits.shape
 
         k = labels
@@ -40,37 +40,36 @@ class SAGSModel(BaseModelWrapper):
         if m.dim() == 3:
             m = m.unsqueeze(1)
 
-        with torch.no_grad():
-            probs = F.softmax(logits.detach(), dim=1)
-            kc = k.clamp(0, K - 1)
+        probs = F.softmax(logits.detach(), dim=1)
+        kc = k.clamp(0, K - 1)
+        threshold = self.cosine_threshold
+        gamma = self.gamma
 
-            G_Z = probs.clone()
-            G_Z.scatter_(1, kc.unsqueeze(1), probs.gather(1, kc.unsqueeze(1)) - 1.0)
-            G_F = torch.einsum('kc,bkhw->bchw', W, G_Z)
+        def sags_hook(g):
+            # Compute SAGS on g directly (AMP-safe: all ops linear in g)
+            with torch.no_grad():
+                g_F = torch.einsum('kc,bkhw->bchw', W, g)
+                pm = probs.clone()
+                pm.scatter_(1, kc.unsqueeze(1), 0.0)
+                j = pm.argmax(dim=1)
+                w_j = W[j.reshape(-1)].view(B, H, W_s, -1).permute(0, 3, 1, 2)
+                n2 = (w_j * w_j).sum(dim=1, keepdim=True).clamp(min=1e-8)
+                alpha = ((g_F * w_j).sum(dim=1, keepdim=True) / n2).squeeze(1)
 
-            pm = probs.clone()
-            pm.scatter_(1, kc.unsqueeze(1), 0.0)
-            j = pm.argmax(dim=1)
+                g_pad = F.pad(g_F, (1, 1, 1, 1), mode='replicate')
+                lp = F.pad(kc.float(), (1, 1, 1, 1), mode='replicate')
+                Ic = torch.zeros(B, H, W_s, dtype=torch.bool, device=g.device)
+                for dx, dy in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]:
+                    gn = g_pad[:, :, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
+                    ln = lp[:, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
+                    Ic |= (ln == j.float()) & (F.cosine_similarity(g_F, gn, dim=1, eps=1e-8) < threshold)
 
-            w_j = W[j.reshape(-1)].view(B, H, W_s, C).permute(0, 3, 1, 2)
-            n2 = (w_j * w_j).sum(dim=1, keepdim=True).clamp(min=1e-8)
-            alpha = ((G_F * w_j).sum(dim=1, keepdim=True) / n2).squeeze(1)
+                correction = gamma * m.squeeze(1) * Ic.float() * alpha
+                mask_j = F.one_hot(j, num_classes=K).permute(0, 3, 1, 2).float()
+                return g - correction.unsqueeze(1) * mask_j
 
-            G_pad = F.pad(G_F, (1, 1, 1, 1), mode='replicate')
-            lp = F.pad(kc.float(), (1, 1, 1, 1), mode='replicate')
-            Ic = torch.zeros(B, H, W_s, dtype=torch.bool, device=logits.device)
-            for dx, dy in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]:
-                Gn = G_pad[:, :, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
-                ln = lp[:, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
-                Ic |= (ln == j.float()) & (F.cosine_similarity(G_F, Gn, dim=1, eps=1e-8) < self.cosine_threshold)
-
-            correction = self.gamma * m.squeeze(1) * Ic.float() * alpha
-            mask_j = F.one_hot(j, num_classes=K).permute(0, 3, 1, 2).float()
-
-        # SAGS via pseudo-loss (AMP-compatible):
-        # subtracting correction from logits_j gradient ≡ adding -correction*logits_j to loss
-        loss_sags = -(correction.detach().unsqueeze(1) * mask_j.detach() * logits).sum()
-        return self.ce_fn(logits, labels) + loss_sags
+        logits.register_hook(sags_hook)
+        return self.ce_fn(logits, labels)
 
     def forward_inference(self, images):
         with torch.no_grad():
