@@ -68,7 +68,7 @@ class SAGSModel(BaseModelWrapper):
             mask_j = F.one_hot(j, num_classes=K).permute(0, 3, 1, 2).float()
             G_Z_mod = G_Z - correction.unsqueeze(1) * mask_j
 
-        logits.register_hook(lambda g, gm=G_Z_mod: gm * g)
+        logits.register_hook(lambda g, gm=G_Z_mod: gm)
         return self.ce_fn(logits, labels)
 
     def forward_inference(self, images):
