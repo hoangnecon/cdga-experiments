@@ -118,13 +118,12 @@ class SAGSModel(BaseModelWrapper):
     def train_mode(self) -> None:
         """Register hooks — capture features before classification head."""
         self.backbone.train()
-        # Hook the last layer BEFORE segmentation_head
         if hasattr(self.backbone, 'decoder') and hasattr(self.backbone.decoder, 'segmentation_head'):
-            seg_head = self.backbone.decoder.segmentation_head
-            # Hook the first layer of seg_head to capture its input (the feature map)
-            target = seg_head[0] if isinstance(seg_head, nn.Sequential) else seg_head
+            target = self.backbone.decoder.segmentation_head[-1]
         else:
-            target = self.backbone
+            raise AttributeError(
+                f"Model {type(self.backbone).__name__} missing decoder.segmentation_head"
+            )
         self._feature_hook_handle = target.register_forward_hook(self._capture_features)
 
     def eval_mode(self) -> None:
@@ -135,26 +134,13 @@ class SAGSModel(BaseModelWrapper):
             self._feature_hook_handle = None
 
     def _find_seg_head_conv(self) -> nn.Conv2d:
-        """Find the final 1x1 conv layer of segmentation head."""
-        # GeoSeg UNetFormer: decoder.segmentation_head[-1]
+        """Find the final 1x1 conv of segmentation head."""
         if hasattr(self.backbone, 'decoder') and hasattr(self.backbone.decoder, 'segmentation_head'):
             seg_head = self.backbone.decoder.segmentation_head
-            if isinstance(seg_head, nn.Sequential):
-                # Find last Conv2d in Sequential
-                for m in reversed(seg_head):
-                    if isinstance(m, nn.Conv2d):
-                        return m
-        # Generic fallback
-        for name in ['head', 'decode_head', 'seg_head']:
-            if hasattr(self.backbone, name):
-                m = getattr(self.backbone, name)
-                convs = [c for c in m.modules() if isinstance(c, nn.Conv2d)]
-                if convs:
-                    return convs[-1]
-        raise AttributeError(
-            "Cannot find segmentation head Conv2d. "
-            f"Backbone type: {type(self.backbone).__name__}"
-        )
+            for m in reversed(list(seg_head.children())):
+                if isinstance(m, nn.Conv2d):
+                    return m
+        raise AttributeError(f"No Conv2d in seg_head of {type(self.backbone).__name__}")
 
     def forward_train(
         self,
