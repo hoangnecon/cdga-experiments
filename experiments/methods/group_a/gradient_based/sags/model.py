@@ -73,6 +73,7 @@ class SAGSModel(BaseModelWrapper):
             _, _, HZ, WZ = G_Z.shape
 
             with torch.no_grad():
+                print(f"[SAGS] G_Z shape: {G_Z.shape}, labels shape: {k_labels.shape}, mask shape: {boundary_mask.shape}")
                 # Resize labels/mask to logit resolution
                 k = k_labels
                 if k.shape[-2:] != (HZ, WZ):
@@ -86,16 +87,16 @@ class SAGSModel(BaseModelWrapper):
                 # G_F = W^T · G_Z
                 G_F = torch.einsum('kc,bkhw->bchw', W, G_Z)  # (B, C, HZ, WZ)
 
-                # Step 1: competing class j = argmax_{c≠k} p_c
+                # Step 1: competing class j
                 pm = probs.clone()
                 pm.scatter_(1, k.unsqueeze(1), 0.0)
                 j = pm.argmax(dim=1)  # (B, HZ, WZ)
 
-                # Step 2: projection coefficient <G_F, w_j>/||w_j||^2
-                w_j = W[j.reshape(-1)].view(B, HZ, WZ, C).permute(0, 3, 1, 2)  # (B, C, HZ, WZ)
+                # Step 2: projection coefficient
+                w_j = W[j.reshape(-1)].view(B, HZ, WZ, C).permute(0, 3, 1, 2)
                 wj_norm2 = (w_j * w_j).sum(dim=1, keepdim=True).clamp(min=1e-8)
                 dot = (G_F * w_j).sum(dim=1, keepdim=True)
-                alpha = (dot / wj_norm2).squeeze(1)  # (B, HZ, WZ)
+                alpha = (dot / wj_norm2).squeeze(1)
 
                 # Step 3: 3×3 conflict detection
                 G_pad = F.pad(G_F, (1, 1, 1, 1), mode='replicate')
@@ -115,11 +116,8 @@ class SAGSModel(BaseModelWrapper):
                 for b in range(B):
                     G_Z_mod[b, j[b]] -= correction[b]
 
-                # Diagnostics
-                self.grad_stats = {
-                    'conflict_ratio': I_c.float().mean().item(),
-                    'proj_magnitude': alpha.abs().mean().item(),
-                }
+                self.grad_stats = {'conflict_ratio': I_c.float().mean().item(),
+                                   'proj_magnitude': alpha.abs().mean().item()}
 
                 return G_Z_mod
 
