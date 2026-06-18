@@ -1,11 +1,14 @@
 """
 Method: SAGS (Spatially-Aware Gradient Surgery)
-Component: Model Wrapper with backward hook
+Component: Model Wrapper with autograd.Function
 
-SAGS performs spatial gradient surgery via a backward hook:
-  1. Identifies competing class j = argmax p_c for c≠k
-  2. Checks 3×3 neighborhood for cosine similarity conflict  
-  3. Projects out competing w_j component at conflicted boundary pixels
+SAGS performs spatial gradient surgery by modifying the logit gradient G_Z:
+  G_Z_j_mod = p_j - γ·S·I_conflict·⟨G_F, w_j⟩/||w_j||²
+
+This is equivalent to removing w_j component from feature gradient G_F,
+since W^T·(α·e_j) = α·w_j, and only the j-th logit gradient channel changes.
+
+Pattern: torch.autograd.Function (proven PCGrad pattern).
 
 Ref: docs/14_sags_detailed_mathematics.md, docs/12_sags_inductive_biases.md
 """
@@ -13,6 +16,98 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from shared.backbones.base_wrapper import BaseModelWrapper
+
+
+class SAGSAutograd(torch.autograd.Function):
+    """Autograd function: forward=CE loss, backward=SAGS-modified G_Z."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        logits: torch.Tensor,
+        labels: torch.Tensor,
+        boundary_mask: torch.Tensor,
+        backbone: nn.Module,
+        ce_fn: nn.Module,
+        gamma: float,
+        cosine_threshold: float,
+    ) -> torch.Tensor:
+        loss = ce_fn(logits, labels)
+        ctx.save_for_backward(logits.detach(), labels, boundary_mask)
+        ctx.backbone = backbone
+        ctx.gamma = gamma
+        ctx.cosine_threshold = cosine_threshold
+        ctx.has_surgery = False  # set in backward
+        return loss
+
+    @staticmethod
+    def backward(ctx, grad_loss: torch.Tensor) -> tuple:
+        logits, labels, mask = ctx.saved_tensors
+        gamma = ctx.gamma
+        threshold = ctx.cosine_threshold
+
+        if gamma <= 0:
+            return grad_loss, None, None, None, None, None, None
+
+        # Find classification weight W
+        backbone = ctx.backbone
+        convs = [m for m in backbone.modules() if isinstance(m, nn.Conv2d)]
+        if not convs:
+            return grad_loss, None, None, None, None, None, None
+        W = convs[-1].weight.squeeze(-1).squeeze(-1)  # (K, C)
+        K, C = W.shape
+        B, _, H, W_s = logits.shape
+
+        with torch.no_grad():
+            # Compute G_Z = probs - one_hot(label)
+            probs = F.softmax(logits, dim=1)
+            k = labels.clamp(0, K - 1)
+            G_Z = probs.clone()
+            G_Z.scatter_(1, k.unsqueeze(1), probs.gather(1, k.unsqueeze(1)) - 1.0)
+
+            # Resize labels and mask to logit resolution
+            if labels.shape[-2:] != (H, W_s):
+                k = F.interpolate(k.float().unsqueeze(1), size=(H, W_s), mode='nearest').squeeze(1).long()
+            if mask.shape[-2:] != (H, W_s):
+                mask = F.interpolate(mask.float(), size=(H, W_s), mode='nearest')
+            if mask.dim() == 3:
+                mask = mask.unsqueeze(1)
+
+            # Compute G_F = W^T · G_Z
+            G_F = torch.einsum('kc,bkhw->bchw', W, G_Z)  # (B, C, H, W)
+
+            # Step 1: competing class j
+            pm = probs.clone()
+            pm.scatter_(1, k.unsqueeze(1), 0.0)
+            j = pm.argmax(dim=1)  # (B, H, W_s)
+
+            # Step 2: w_j and its projection coefficient
+            w_j = W[j.view(-1)].view(B, H, W_s, C).permute(0, 3, 1, 2)  # (B, C, H, W_s)
+            wj_norm2 = (w_j * w_j).sum(dim=1, keepdim=True).clamp(min=1e-8)
+            dot = (G_F * w_j).sum(dim=1, keepdim=True)                     # (B, 1, H, W_s)
+            alpha = dot / wj_norm2  # projection coefficient <G_F, w_j>/||w_j||²
+
+            # Step 3: 3×3 conflict detection
+            G_pad = F.pad(G_F, (1, 1, 1, 1), mode='replicate')
+            lab_pad = F.pad(k.float(), (1, 1, 1, 1), mode='replicate')
+            I_c = torch.zeros(B, H, W_s, device=G_F.device)
+            for dx, dy in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]:
+                Gn = G_pad[:, :, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
+                ln = lab_pad[:, 1+dx:1+dx+H, 1+dy:1+dy+W_s]
+                cos_val = F.cosine_similarity(G_F, Gn, dim=1, eps=1e-8)
+                I_c = I_c | ((ln == j.float()) & (cos_val < threshold))
+
+            # Step 4: modify G_Z — only j-th channel
+            I = I_c.float().unsqueeze(1)                       # (B, 1, H, W_s)
+            correction = gamma * mask * I * alpha.squeeze(1)   # (B, H, W_s)
+
+            # G_Z_j -= correction (remove w_j component)
+            G_Z_mod = G_Z.clone()
+            G_Z_mod.scatter_(1, j.unsqueeze(1), G_Z_mod.gather(1, j.unsqueeze(1)) - correction.unsqueeze(1))
+
+            ctx.has_surgery = True
+
+        return grad_loss * G_Z_mod, None, None, None, None, None, None
 
 
 class SAGSModel(BaseModelWrapper):
@@ -24,151 +119,14 @@ class SAGSModel(BaseModelWrapper):
         self.gamma = cfg["sags"].get("gamma", 1.0)
         self.cosine_threshold = cfg["sags"].get("cosine_threshold", 0.0)
         self.ce_fn = nn.CrossEntropyLoss(ignore_index=ignore_index)
-        self._forward_hook_handle = None
         self.grad_stats: dict = {}
-
-    # ------------------------------------------------------------------
-    # Hook management — find seg head dynamically
-    # ------------------------------------------------------------------
-    def _find_last_conv(self) -> nn.Conv2d:
-        """Find the LAST Conv2d in the backbone — this is the classification head.
-        
-        For UNetFormer, this is decoder.segmentation_head[-1] (final 1x1 conv).
-        Generic fallback: scan all modules, return the last Conv2d found.
-        """
-        # First try the known GeoSeg path
-        if hasattr(self.backbone, 'decoder') and hasattr(self.backbone.decoder, 'segmentation_head'):
-            seg_head = self.backbone.decoder.segmentation_head
-            children = list(seg_head.children())
-            if children:
-                convs = [c for c in children if isinstance(c, nn.Conv2d)]
-                if convs:
-                    return convs[-1]  # last conv in seg_head
-        
-        # Generic fallback: find last Conv2d anywhere in the model
-        all_convs = [m for m in self.backbone.modules() if isinstance(m, nn.Conv2d)]
-        if not all_convs:
-            raise AttributeError(f"No Conv2d found in {type(self.backbone).__name__}")
-        return all_convs[-1]
-
-    def _hook_before_last_conv(self):
-        """Register forward pre-hook on the layer right BEFORE last Conv2d."""
-        last_conv = self._find_last_conv()
-        # Find the module containing the last conv, hook the conv itself with pre-hook
-        return last_conv.register_forward_pre_hook(self._on_pre_forward)
 
     def train_mode(self) -> None:
         self.backbone.train()
-        self._forward_hook_handle = self._hook_before_last_conv()
 
     def eval_mode(self) -> None:
         self.backbone.eval()
-        if self._forward_hook_handle is not None:
-            self._forward_hook_handle.remove()
-            self._forward_hook_handle = None
 
-    # ------------------------------------------------------------------
-    # Forward hook — capture feature map F before classification head
-    # ------------------------------------------------------------------
-    def _on_pre_forward(self, module, args):
-        """Pre-forward hook: captures input to first Conv2d of seg_head = feature map F."""
-        self._fwd_features = args[0]  # (B, C, H, W) — raw decoder features
-        self._fwd_labels = None
-        self._fwd_probs = None
-        self._fwd_mask = None
-        self._fwd_weight = None
-
-    def _set_hook_context(
-        self,
-        labels: torch.Tensor,
-        logits: torch.Tensor,
-        boundary_mask: torch.Tensor,
-        seg_weight: torch.Tensor,
-    ):
-        """Set context that the backward hook will read."""
-        self._fwd_labels = labels
-        self._fwd_probs = F.softmax(logits.detach(), dim=1)
-        self._fwd_mask = boundary_mask
-        self._fwd_weight = seg_weight
-
-    # ------------------------------------------------------------------
-    # Backward hook — gradient surgery via register_hook on features
-    # ------------------------------------------------------------------
-    def _make_backward_hook(self):
-        """Return a closure that captures current context for gradient modification."""
-        gamma = self.gamma
-        threshold = self.cosine_threshold
-        labels = self._fwd_labels
-        probs = self._fwd_probs
-        mask = self._fwd_mask
-        weight = self._fwd_weight  # (K, C)
-
-        def sags_grad_hook(grad: torch.Tensor) -> torch.Tensor:
-            if gamma <= 0 or weight is None or labels is None:
-                return grad
-
-            G_F = grad
-            B, C, H, W = G_F.shape
-            K = weight.shape[0]
-
-            with torch.no_grad():
-                # Resize context tensors to feature map resolution
-                _, _, H, W = G_F.shape
-                if labels.shape[-2:] != (H, W):
-                    labels = F.interpolate(
-                        labels.float().unsqueeze(1), size=(H, W), mode='nearest'
-                    ).squeeze(1).long()
-                if mask.shape[-2:] != (H, W):
-                    mask = F.interpolate(mask, size=(H, W), mode='nearest')
-                if probs.shape[-2:] != (H, W):
-                    probs = F.interpolate(probs, size=(H, W), mode='bilinear')
-
-                # Step 1: competing class j = argmax_{c≠k} p_c
-                k = labels.clamp(0, K - 1)
-                pm = probs.clone()
-                pm.scatter_(1, k.unsqueeze(1), 0.0)
-                j = pm.argmax(dim=1)  # (B, H, W)
-
-                # Step 2: w_j prototype for each pixel
-                w_j = weight[j.view(-1)].view(B, H, W, C).permute(0, 3, 1, 2)  # (B, C, H, W)
-                wj_norm2 = (w_j * w_j).sum(dim=1, keepdim=True).clamp(min=1e-8)
-                dot = (G_F * w_j).sum(dim=1, keepdim=True)
-                proj_wj = (dot / wj_norm2) * w_j  # (B, C, H, W)
-
-                # Step 3: 3×3 conflict detection
-                G_pad = F.pad(G_F, (1, 1, 1, 1), mode='replicate')
-                lab_pad = F.pad(k.float(), (1, 1, 1, 1), mode='replicate')
-                I_c = torch.zeros(B, H, W, device=G_F.device)
-                for dx, dy in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]:
-                    Gn = G_pad[:, :, 1+dx:1+dx+H, 1+dy:1+dy+W]
-                    ln = lab_pad[:, 1+dx:1+dx+H, 1+dy:1+dy+W]
-                    cos = F.cosine_similarity(G_F, Gn, dim=1, eps=1e-8)
-                    I_c = I_c | ((ln == j.float()) & (cos < threshold))
-
-                # Step 4: apply surgery
-                S = mask.float()
-                if S.dim() == 3:
-                    S = S.unsqueeze(1)
-                I = I_c.float().unsqueeze(1)
-
-                # Diagnostics
-                cr = I_c.float().mean().item()
-                pm_val = proj_wj.norm(dim=1).mean().item()
-                self.grad_stats = {
-                    'conflict_ratio': cr,
-                    'proj_magnitude': pm_val,
-                    'orig_magnitude': G_F.norm(dim=1).mean().item(),
-                }
-                if pm_val > 1e-8:
-                    self.grad_stats['snr'] = self.grad_stats['orig_magnitude'] / pm_val
-
-                return G_F - gamma * S * I * proj_wj
-
-        return sags_grad_hook
-
-    # ------------------------------------------------------------------
-    # Forward pass
-    # ------------------------------------------------------------------
     def forward_train(
         self,
         images: torch.Tensor,
@@ -183,20 +141,13 @@ class SAGSModel(BaseModelWrapper):
             logits = out
 
         if boundary_mask is None:
-            boundary_mask = torch.zeros(
-                labels.shape[0], 1, labels.shape[1], labels.shape[2],
-                device=labels.device
-            )
+            boundary_mask = torch.zeros(labels.shape, device=labels.device)
 
-        # Register backward hook on captured feature tensor
-        features = self._fwd_features
-        if features is not None and features.requires_grad:
-            seg_conv = self._find_last_conv()
-            W = seg_conv.weight.squeeze(-1).squeeze(-1)  # (K, C)
-            self._set_hook_context(labels, logits, boundary_mask, W)
-            features.register_hook(self._make_backward_hook())
-
-        return self.ce_fn(logits, labels)
+        return SAGSAutograd.apply(
+            logits, labels, boundary_mask,
+            self.backbone, self.ce_fn,
+            self.gamma, self.cosine_threshold,
+        )
 
     def forward_inference(self, images: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
