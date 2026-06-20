@@ -443,10 +443,14 @@ def run_training(build_model_fn: Callable[[dict], nn.Module], description: str =
     if args.resume is not None:
         ckpt = load_checkpoint(args.resume, model, optimizer, scheduler)
         start_epoch = ckpt["epoch"] + 1
-        best_miou = ckpt.get("best_miou", 0.0)
-        best_bf1 = ckpt.get("best_bf1", 0.0)
+        best_miou = ckpt.get("best_miou", ckpt.get("metrics", {}).get("miou", 0.0))
+        best_bf1 = ckpt.get("best_bf1", ckpt.get("metrics", {}).get("bf1_3", 0.0))
         metrics_history = ckpt.get("metrics_history", [])
+        # Use existing run directory (parent of checkpoints/)
+        run_dir = args.resume.parent.parent
         logger.info(f"Resumed from epoch {ckpt['epoch']} | best mIoU: {best_miou:.2f} | best BF1@3: {best_bf1:.2f}")
+    else:
+        ckpt_dir = run_dir / "checkpoints"
 
     # Training Loop
     ckpt_dir = run_dir / "checkpoints"
@@ -488,18 +492,21 @@ def run_training(build_model_fn: Callable[[dict], nn.Module], description: str =
         if is_best_miou:
             best_miou = val_metrics["miou"]
             save_checkpoint(ckpt_dir / "best_miou.pth", epoch, model,
-                            optimizer, scheduler, val_metrics, cfg, metrics_history)
+                            optimizer, scheduler, val_metrics, cfg, metrics_history,
+                            best_miou=best_miou, best_bf1=best_bf1)
             logger.log_best_event(epoch, "mIoU", best_miou, best_miou)
 
         if is_best_bf1:
             best_bf1 = val_metrics["bf1_3"]
             save_checkpoint(ckpt_dir / "best_bf1.pth", epoch, model,
-                            optimizer, scheduler, val_metrics, cfg, metrics_history)
+                            optimizer, scheduler, val_metrics, cfg, metrics_history,
+                            best_miou=best_miou, best_bf1=best_bf1)
             logger.log_best_event(epoch, "BF1@3", best_bf1, best_bf1)
 
         # Save last checkpoint
         save_checkpoint(ckpt_dir / "last.pth", epoch, model,
-                        optimizer, scheduler, val_metrics, cfg, metrics_history)
+                        optimizer, scheduler, val_metrics, cfg, metrics_history,
+                        best_miou=best_miou, best_bf1=best_bf1)
 
         # Save checkpoint every 10 epochs
         if epoch % 10 == 0:

@@ -22,6 +22,8 @@ def save_checkpoint(
     metrics: dict,
     config: dict,
     metrics_history: list[dict],
+    best_miou: float = 0.0,
+    best_bf1: float = 0.0,
 ) -> None:
     """Save a checkpoint to disk.
 
@@ -60,6 +62,8 @@ def save_checkpoint(
         "metrics": metrics,
         "config": config,
         "metrics_history": metrics_history,
+        "best_miou": best_miou,
+        "best_bf1": best_bf1,
     }
 
     path = Path(path)
