@@ -98,7 +98,7 @@ def load_checkpoint(
         )
 
     # Load to CPU first, then let model handle device placement
-    ckpt = torch.load(path, map_location="cpu")
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
 
     if model is not None:
         target = model.backbone if hasattr(model, "backbone") else model
