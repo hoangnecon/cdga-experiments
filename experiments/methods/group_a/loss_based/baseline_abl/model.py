@@ -52,8 +52,11 @@ class ABLModel(BaseModelWrapper):
         else:
             logits = out
             
+        # Stabilize logits for IoU loss at late epochs
+        logits_stable = torch.clamp(logits, -10.0, 10.0)
+        
         ce_loss = self.ce_fn(logits, labels)
-        iou_loss = self.iou_fn(logits, labels)
+        iou_loss = self.iou_fn(logits_stable, labels)
         loss = ce_loss + iou_loss
         
         if self._current_epoch >= self.start_epoch:
