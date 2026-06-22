@@ -177,7 +177,7 @@ class ABLLoss(nn.Module):
         device = labels.device
 
         # Detect boundary via 4-connectivity diff (equivalent to official gt2boundary lines 89-101)
-        padded = F.pad(labels, (1, 1, 1, 1), mode='edge')
+        padded = F.pad(labels, (1, 1, 1, 1), mode='replicate')
         up = padded[:, 0:H, 1:W+1]
         down = padded[:, 2:H+2, 1:W+1]
         left = padded[:, 1:H+1, 0:W]
