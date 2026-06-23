@@ -1,0 +1,16 @@
+# Method configuration for Active Boundary Loss (ABL) on ISPRS Potsdam
+# File: experiments/configs/methods/loss_based/abl_potsdam.yaml
+# Faithful implementation of Wang et al., AAAI 2022
+
+base: ../../base/group_a/unetformer_r18_potsdam.yaml
+
+project:
+  name: wacv2027_baseline_abl_potsdam
+  method: baseline_abl
+
+abl:
+  enabled: true
+  weight: 1.0
+  max_N_ratio: 0.01
+  max_clip_dist: 20.0
+  is_detach: true
