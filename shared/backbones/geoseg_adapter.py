@@ -69,15 +69,16 @@ def load_geoseg_backbone(
     """
     model_name = model_name.lower().replace("-", "_")
 
+    # Import UNetFormer once for all UNetFormer variants
+    try:
+        from geoseg.models.UNetFormer import UNetFormer
+    except ImportError as e:
+        raise ImportError(
+            f"Failed to import UNetFormer from geoseg. "
+            f"Ensure tmp/GeoSeg is present and sys.path is correct.\nError: {e}"
+        )
+
     if model_name == "unetformer_r18":
-        try:
-            from geoseg.models.UNetFormer import UNetFormer
-        except ImportError as e:
-            raise ImportError(
-                f"Failed to import UNetFormer from geoseg. "
-                f"Ensure tmp/GeoSeg is present and sys.path is correct.\nError: {e}"
-            )
-        # unetformer_r18 default backbone in GeoSeg is swsl_resnet18
         model = UNetFormer(num_classes=num_classes, pretrained=pretrained)
         return model
 
