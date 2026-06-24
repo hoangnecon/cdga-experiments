@@ -139,13 +139,21 @@ def load_geoseg_backbone(
 
 
 class _SegFormerWrapper(nn.Module):
-    """Thin wrapper making HuggingFace SegFormer compatible with GeoSeg backbone interface."""
+    """Wrapper making SegFormer compatible with GeoSeg backbone + CAS."""
     def __init__(self, segformer_model):
         super().__init__()
         self.model = segformer_model
+        # Replace Linear classifier with Conv2d for CAS _get_W() compatibility
+        old_linear = segformer_model.decode_head.classifier
+        new_conv = nn.Conv2d(old_linear.in_features, old_linear.out_features, 1)
+        new_conv.weight.data = old_linear.weight.data.unsqueeze(-1).unsqueeze(-1)
+        new_conv.bias.data = old_linear.bias.data
+        self.model.decode_head.classifier = new_conv
 
-    def forward(self, x, labels=None):
-        return self.model(pixel_values=x, labels=labels)
+    def forward(self, x):
+        out = self.model(pixel_values=x)
+        logits = out.logits  # (B, K, H/4, W/4) — SegFormer stride-4
+        return (logits,)
 
     def parameters(self, recurse=True):
         return self.model.parameters(recurse=recurse)
