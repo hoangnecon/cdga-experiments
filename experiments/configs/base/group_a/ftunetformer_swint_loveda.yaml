@@ -9,13 +9,13 @@ data:
   stride: 32
   num_workers: 8
   class_names:
-  - Background
   - Building
   - Road
   - Water
   - Barren
   - Forest
-  - Agricultural
+  - Agriculture
+  - Unlabeled
   augmentation:
     random_flip: true
     random_scale:

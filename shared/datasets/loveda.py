@@ -18,8 +18,8 @@ import albumentations as albu
 
 from shared.utils.cdga_utils import compute_distance_map, compute_modulation_mask
 
-CLASSES = ('Background', 'Building', 'Road', 'Water', 'Barren', 'Forest', 'Agricultural')
-PALETTE = [[255, 255, 255], [255, 0, 0], [255, 255, 0], [0, 0, 255], [128, 128, 128], [0, 128, 0], [0, 255, 0]]
+CLASSES = ('Building', 'Road', 'Water', 'Barren', 'Forest', 'Agriculture', 'Unlabeled')
+PALETTE = [[255, 0, 0], [255, 255, 0], [0, 0, 255], [128, 128, 128], [0, 128, 0], [0, 255, 0], [255, 255, 255]]
 
 
 class LoveDADataset(Dataset):
