@@ -1,0 +1,8 @@
+# Method configuration for Vanilla Cross Entropy (CE) — LoveDA ConvNeXt-S
+# File: experiments/configs/methods/loss_based/ce_loveda_convnext.yaml
+
+base: ../../base/group_a/unetformer_convnexts_loveda.yaml
+
+project:
+  name: wacv2027_baseline_ce_loveda_convnext
+  method: baseline_ce
