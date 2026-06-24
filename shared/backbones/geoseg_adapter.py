@@ -81,6 +81,32 @@ def load_geoseg_backbone(
         model = UNetFormer(num_classes=num_classes, pretrained=pretrained)
         return model
 
+    elif model_name == "unetformer_r50":
+        model = UNetFormer(backbone_name="resnet50.a1_in1k", num_classes=num_classes, pretrained=pretrained)
+        return model
+
+    elif model_name == "unetformer_convnexts":
+        from geoseg.models.UNetFormer import Decoder
+        import timm
+        # UNetFormer defaults to resnet18. Create with dummy backbone, then swap.
+        model = UNetFormer(num_classes=num_classes, pretrained=False)
+        model.backbone = timm.create_model(
+            "convnext_small.fb_in22k_ft_in1k",
+            features_only=True, output_stride=32,
+            out_indices=(0, 1, 2, 3), pretrained=pretrained,
+        )
+        encoder_channels = model.backbone.feature_info.channels()
+        model.decoder = Decoder(encoder_channels, 64, 0.1, 8, num_classes)
+        return model
+
+    elif model_name == "ftunetformer_swint":
+        try:
+            from geoseg.models.FTUNetFormer import FTUNetFormer
+        except ImportError as e:
+            raise ImportError(f"Failed to import FTUNetFormer. Error: {e}")
+        model = FTUNetFormer(num_classes=num_classes, freeze_stages=-1)
+        return model
+
     elif model_name == "ftunetformer_swinb":
         try:
             from geoseg.models.FTUNetFormer import ft_unetformer
@@ -89,17 +115,40 @@ def load_geoseg_backbone(
                 f"Failed to import FTUNetformer from geoseg. "
                 f"Ensure tmp/GeoSeg is present and sys.path is correct.\nError: {e}"
             )
-        # ft_unetformer helper function automatically sets Swin-B depths,heads,etc.
-        # pretrained weights are loaded from pretrain_weights/stseg_base.pth by default in GeoSeg,
-        # we can disable weight_path loading if it's not present or handled externally
         model = ft_unetformer(pretrained=pretrained, num_classes=num_classes, weight_path=None)
         return model
+
+    elif model_name == "segformer_b2":
+        try:
+            from transformers import SegformerForSemanticSegmentation
+        except ImportError:
+            raise ImportError("transformers library required for SegFormer. pip install transformers")
+        segformer = SegformerForSemanticSegmentation.from_pretrained(
+            "nvidia/mit-b2",
+            num_labels=num_classes,
+            ignore_mismatched_sizes=True,
+        )
+        return _SegFormerWrapper(segformer)
 
     else:
         raise ValueError(
             f"Unsupported backbone model: {model_name}. "
-            f"Supported options: 'unetformer_r18', 'ftunetformer_swinb'."
+            f"Supported options: 'unetformer_r18', 'unetformer_r50', 'unetformer_convnexts', "
+            f"'ftunetformer_swint', 'ftunetformer_swinb', 'segformer_b2'."
         )
+
+
+class _SegFormerWrapper(nn.Module):
+    """Thin wrapper making HuggingFace SegFormer compatible with GeoSeg backbone interface."""
+    def __init__(self, segformer_model):
+        super().__init__()
+        self.model = segformer_model
+
+    def forward(self, x, labels=None):
+        return self.model(pixel_values=x, labels=labels)
+
+    def parameters(self, recurse=True):
+        return self.model.parameters(recurse=recurse)
 
 
 def get_feature_and_logits(
