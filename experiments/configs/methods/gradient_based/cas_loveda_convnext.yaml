@@ -1,0 +1,10 @@
+# CAS: Conflict-Aware Scaling — LoveDA ConvNeXt-S
+base: ../../base/group_a/unetformer_convnexts_loveda.yaml
+
+project:
+  name: wacv2027_cas_loveda_convnext
+  method: cas
+
+cas:
+  enabled: true
+  gamma: 5.0
