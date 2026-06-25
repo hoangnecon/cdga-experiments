@@ -171,14 +171,12 @@ class _DeepLabV3Wrapper(nn.Module):
     def __init__(self, deeplab_model):
         super().__init__()
         self.model = deeplab_model
+        # Disable aux classifier — CAS/CE don't use it, and it crashes with batch=1
+        self.model.aux_classifier = None
 
     def forward(self, x):
         out = self.model(x)
-        logits = out["out"]
-        aux = out.get("aux")
-        if self.training and aux is not None:
-            return (logits, aux)
-        return (logits,)
+        return (out["out"],)
 
     def parameters(self, recurse=True):
         return self.model.parameters(recurse=recurse)
