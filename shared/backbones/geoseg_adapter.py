@@ -167,18 +167,19 @@ class _SegFormerWrapper(nn.Module):
 
 
 class _DeepLabV3Wrapper(nn.Module):
-    """Wrapper making DeepLabV3+ compatible with BaseModelWrapper + CAS."""
+    """Wrapper making DeepLabV3+ compatible with BaseModelWrapper + CAS.
+    
+    Note: aux_classifier is disabled. Both CE and CAS ignore the auxiliary loss branch.
+    This saves ~20% VRAM without affecting the main prediction path (ASPP decoder).
+    """
     def __init__(self, deeplab_model):
         super().__init__()
         self.model = deeplab_model
+        self.model.aux_classifier = None
 
     def forward(self, x):
         out = self.model(x)
-        logits = out["out"]
-        aux = out.get("aux")
-        if self.training and aux is not None:
-            return (logits, aux)
-        return (logits,)
+        return (out["out"],)
 
     def parameters(self, recurse=True):
         return self.model.parameters(recurse=recurse)
