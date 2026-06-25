@@ -116,14 +116,13 @@ def load_geoseg_backbone(
         return model
 
     elif model_name == "deeplabv3_r50":
-        try:
-            from torchvision.models.segmentation import deeplabv3_resnet50
-        except ImportError:
-            raise ImportError("torchvision required for DeepLabV3+. pip install torchvision")
-        model = deeplabv3_resnet50(weights=None, num_classes=num_classes)
-        if pretrained:
-            pretrained_model = deeplabv3_resnet50(weights="COCO_WITH_VOC_LABELS_V1")
-            model.backbone.load_state_dict(pretrained_model.backbone.state_dict())
+        from torchvision.models.segmentation import deeplabv3_resnet50
+        from torchvision.models import ResNet50_Weights
+        model = deeplabv3_resnet50(
+            weights=None,
+            weights_backbone=ResNet50_Weights.IMAGENET1K_V2 if pretrained else None,
+            num_classes=num_classes,
+        )
         return _DeepLabV3Wrapper(model)
 
     elif model_name == "segformer_b2":
