@@ -82,10 +82,6 @@ def load_geoseg_backbone(
         model = UNetFormer(num_classes=num_classes, pretrained=pretrained)
         return model
 
-    elif model_name == "unetformer_r50":
-        model = UNetFormer(backbone_name="resnet50.a1_in1k", num_classes=num_classes, pretrained=pretrained)
-        return model
-
     elif model_name == "unetformer_convnexts":
         from geoseg.models.UNetFormer import Decoder
         import timm
@@ -134,7 +130,7 @@ def load_geoseg_backbone(
     else:
         raise ValueError(
             f"Unsupported backbone model: {model_name}. "
-            f"Supported options: 'unetformer_r18', 'unetformer_r50', 'unetformer_convnexts', "
+            f"Supported options: 'unetformer_r18', 'unetformer_convnexts', "
             f"'ftunetformer_swint', 'ftunetformer_swinb', 'segformer_b2'."
         )
 
