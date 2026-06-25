@@ -1,0 +1,10 @@
+# CAS: Conflict-Aware Scaling — LoveDA FTUNetFormer Swin-T
+base: ../../base/group_a/ftunetformer_swint_loveda.yaml
+
+project:
+  name: wacv2027_cas_loveda_swint
+  method: cas
+
+cas:
+  enabled: true
+  gamma: 5.0

@@ -1,0 +1,6 @@
+# Method configuration for Vanilla Cross Entropy (CE) — LoveDA FTUNetFormer Swin-T
+base: ../../base/group_a/ftunetformer_swint_loveda.yaml
+
+project:
+  name: wacv2027_baseline_ce_loveda_swint
+  method: baseline_ce
