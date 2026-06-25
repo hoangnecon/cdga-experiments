@@ -1,0 +1,10 @@
+# CAS: Conflict-Aware Scaling — LoveDA DeepLabV3+ R50
+base: ../../base/group_a/deeplabv3_r50_loveda.yaml
+
+project:
+  name: wacv2027_cas_loveda_deeplab
+  method: cas
+
+cas:
+  enabled: true
+  gamma: 5.0

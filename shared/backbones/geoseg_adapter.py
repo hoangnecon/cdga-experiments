@@ -115,6 +115,17 @@ def load_geoseg_backbone(
         model = ft_unetformer(pretrained=pretrained, num_classes=num_classes, weight_path=None)
         return model
 
+    elif model_name == "deeplabv3_r50":
+        try:
+            from torchvision.models.segmentation import deeplabv3_resnet50
+        except ImportError:
+            raise ImportError("torchvision required for DeepLabV3+. pip install torchvision")
+        model = deeplabv3_resnet50(weights=None, num_classes=num_classes)
+        if pretrained:
+            pretrained_model = deeplabv3_resnet50(weights="COCO_WITH_VOC_LABELS_V1")
+            model.backbone.load_state_dict(pretrained_model.backbone.state_dict())
+        return _DeepLabV3Wrapper(model)
+
     elif model_name == "segformer_b2":
         try:
             from transformers import SegformerForSemanticSegmentation
@@ -131,7 +142,7 @@ def load_geoseg_backbone(
         raise ValueError(
             f"Unsupported backbone model: {model_name}. "
             f"Supported options: 'unetformer_r18', 'unetformer_convnexts', "
-            f"'ftunetformer_swint', 'ftunetformer_swinb', 'segformer_b2'."
+            f"'deeplabv3_r50', 'ftunetformer_swint', 'ftunetformer_swinb', 'segformer_b2'."
         )
 
 
@@ -154,6 +165,32 @@ class _SegFormerWrapper(nn.Module):
 
     def parameters(self, recurse=True):
         return self.model.parameters(recurse=recurse)
+
+
+class _DeepLabV3Wrapper(nn.Module):
+    """Wrapper making DeepLabV3+ compatible with BaseModelWrapper + CAS."""
+    def __init__(self, deeplab_model):
+        super().__init__()
+        self.model = deeplab_model
+
+    def forward(self, x):
+        out = self.model(x)
+        logits = out["out"]
+        aux = out.get("aux")
+        if self.training and aux is not None:
+            return (logits, aux)
+        return (logits,)
+
+    def parameters(self, recurse=True):
+        return self.model.parameters(recurse=recurse)
+
+    def train(self, mode=True):
+        super().train(mode)
+        self.model.train(mode)
+        return self
+
+    def eval(self):
+        return self.train(False)
 
 
 def get_feature_and_logits(

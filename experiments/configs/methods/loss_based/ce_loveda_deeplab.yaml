@@ -1,0 +1,6 @@
+# Method configuration for Vanilla Cross Entropy (CE) — LoveDA DeepLabV3+ R50
+base: ../../base/group_a/deeplabv3_r50_loveda.yaml
+
+project:
+  name: wacv2027_baseline_ce_loveda_deeplab
+  method: baseline_ce
